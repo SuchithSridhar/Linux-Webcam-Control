@@ -52,10 +52,13 @@ help_messages = {
     'continuous': 'Keep checking the status of the webcam continuously.',
 
     'interval': 'Interval in seconds between continuous status checks.',
+    'device_check_interval': ('Interval in seconds between checking to see '
+                              'if the webcam is still plugged in.'),
 
     'on_output': 'Message to print when the webcam is on.',
 
     'off_output': 'Message to print when the webcam is off.',
+    'missing_output': 'Message to print when webcam is missing.',
 }
 
 
@@ -126,19 +129,38 @@ def turn_on_devices(devices: dict[str, str]):
                 file.write(device)
 
 
-def continuous_status(device: str, interval: int,
-                      on_output: str, off_output: str):
+def continuous_status(webcam: str, interval: int, device_check_interval: int,
+                      on_output: str, off_output: str, missing_output: str):
     '''
     This function will run until interrupted by something like an external
     interrupt (Ctrl-C) or the process is killed.
     '''
 
-    device_dir = os.path.join(drivers_directory, device)
+    device_dir = None
+    last_checked = time.time() - device_check_interval
+
     while True:
-        if os.path.isdir(device_dir):
+        current_time = time.time()
+        
+        # Recheck devices list every check_interval seconds
+        if (current_time - last_checked >= device_check_interval):
+            devices, _, _ = get_devices([webcam])
+            device = devices.get(webcam, None)
+            if device:
+                device_dir = os.path.join(drivers_directory, device)
+            else:
+                device_dir = None
+                print(missing_output)
+        
+            last_checked = current_time
+        
+        if device_dir and os.path.isdir(device_dir):
             print(on_output)
+        elif device_dir is None:
+            print(missing_output)
         else:
             print(off_output)
+        
         time.sleep(interval)
 
 
@@ -161,10 +183,15 @@ def main():
                         help=help_messages['continuous'])
     parser.add_argument('-t', '--interval', type=int, default=1,
                         help=help_messages['interval'])
+    parser.add_argument('-d', '--device-check-interval', type=int, default=10,
+                        dest="device_check_interval",
+                        help=help_messages['device_check_interval'])
     parser.add_argument('--on', dest='on_output', default='On',
                         help=help_messages['on_output'])
     parser.add_argument('--off', dest='off_output', default='Off',
                         help=help_messages['off_output'])
+    parser.add_argument('--miss', dest='missing_output', default='Not Found',
+                        help=help_messages['missing_output'])
 
     args = parser.parse_args()
 
@@ -184,26 +211,30 @@ def main():
 
     devices, products, missing_webcams = get_devices(webcams)
 
-    if not devices:
+    if not devices and not args.continuous:
         print("Error: None of the specified webcams were found.")
         sys.exit(1)
 
-    if missing_webcams and not args.ignore_missing_devices:
+    if (missing_webcams and not args.ignore_missing_devices
+            and not args.continuous):
         print("Error: The following webcams were not found: ",
               ', '.join(missing_webcams))
         sys.exit(1)
 
-    if missing_webcams and args.ignore_missing_devices:
+    if (missing_webcams and args.ignore_missing_devices
+            and not args.continuous):
         print("Warning: The following webcams not found and will be ignored: ",
               ', '.join(missing_webcams))
 
     if args.action == "status":
         if args.continuous:
             continuous_status(
-                devices[webcams[0]],
+                webcams[0],
                 args.interval,
+                args.device_check_interval,
                 args.on_output,
-                args.off_output
+                args.off_output,
+                args.missing_output
             )
         else:
             status = check_status(devices)
