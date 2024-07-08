@@ -8,18 +8,24 @@ import time
 '''
 Ways to use script:
 
+./webcam-control --help
+./webcam-control -h
+
+./webcam-control devices
+
 ./webcam-control status --webcams "GC21 Video"
 ./webcam-control status --webcams "XYZ"
-./webcam-control toggle --webcams "GC21 Video"
+
 ./webcam-control off --webcams "GC21 Video"
 ./webcam-control on --webcams "GC21 Video"
 
-./webcam-control devices
-./webcam-control status --webcams "GC21 Video"
 ./webcam-control toggle --webcams "GC21 Video"
-./webcam-control toggle --webcams "GC21 Video"
+./webcam-control toggle -W "GC21 Video" "XYZ" --ignore-missing-devices
 ./webcam-control toggle -w "GC21 Video" "XYZ" -i
-./webcam
+
+./webcam-control status -w "GC21 Video" --continuous --interval 1
+./webcam-control status -w "GC21 Video" -c -i 1
+./webcam-control status -w "GC21 Video" -c --on "Webcam On" --off "Webcam Off"
 '''
 
 devices_directory = '/sys/bus/usb/devices'
