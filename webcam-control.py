@@ -150,17 +150,17 @@ def continuous_status(webcam: str, interval: int, device_check_interval: int,
                 device_dir = os.path.join(drivers_directory, device)
             else:
                 device_dir = None
-                print(missing_output)
         
             last_checked = current_time
         
         if device_dir and os.path.isdir(device_dir):
-            print(on_output)
+            output = on_output
         elif device_dir is None:
-            print(missing_output)
+            output = missing_output
         else:
-            print(off_output)
+            output = off_output
         
+        print(output, flush=True)
         time.sleep(interval)
 
 
