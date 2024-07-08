@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import argparse
+import subprocess
+
+'''
+Ways to use script:
+
+./webcam-control status --webcams "GC21 Video"
+./webcam-control status --webcams "XYZ"
+./webcam-control toggle --webcams "GC21 Video"
+./webcam-control off --webcams "GC21 Video"
+./webcam-control on --webcams "GC21 Video"
+
+./webcam-control devices
+./webcam-control status --webcams "GC21 Video" --notify
+./webcam-control toggle --webcams "GC21 Video" --notify
+./webcam-control toggle --webcams "GC21 Video" --notify
+./webcam-control toggle -w "GC21 Video" "XYZ" -in
+./webcam
+'''
+
+
+devices_directory = '/sys/bus/usb/devices'
+drivers_directory = '/sys/bus/usb/drivers/usb'
+
+help_messages = {
+    'description': ('Webcam Control Script: '
+                    'Control the state of specified webcams.'),
+
+    'action': ('- status: Check if the specified webcams are on or off.\n'
+               '- toggle: Toggle the state of the specified webcams.\n'
+               '- off: Turn off the specified webcams.\n'
+               '- on: Turn on the specified webcams.\n'
+               '- devices: List all USB devices and exit.'),
+
+    'webcams': ('List of webcams to control (required for all actions except'
+                ' "devices").\n\tExample: --webcams "GC21 Video" "XYZ".'),
+
+    'notify': 'Send a notification after performing the action.',
+
+    'ignore_missing_devices': ('Ignore missing devices and proceed '
+                               'with the action.'),
+
+    'devices': 'List all USB devices and exit.'
+}
+
+
+def get_devices(webcams: list[str] = []
+                ) -> (dict[str, str], list[str], list[str]):
+    '''
+    Get all the devices associated with each provided webcam.
+
+    The webcam's list can be empty as the returned found_products
+    array can still be the list of all devices/webcams.
+    '''
+
+    found_devices = {}
+    found_products = []
+    missing_webcams = set(webcams)
+
+    for device in os.listdir(devices_directory):
+        product_path = os.path.join(devices_directory, device, 'product')
+        if os.path.isfile(product_path):
+            with open(product_path, 'r') as product_file:
+                product = product_file.read().strip()
+                found_products.append(product)
+                if product in webcams:
+                    found_devices[product] = device
+                    missing_webcams.discard(product)
+
+    return found_devices, found_products, list(missing_webcams)
+
+
+def list_devices():
+    _, products, _ = get_devices([])
+    print("USB Devices found:")
+    for product in products:
+        print("\t", product)
+
+
+def check_status(devices: dict[str, str]) -> dict[str, bool]:
+    webcam_is_active = {}
+    for webcam, device in devices.items():
+        device_dir = os.path.join(drivers_directory, device)
+        webcam_is_active[webcam] = os.path.isdir(device_dir)
+
+    return webcam_is_active
+
+
+def toggle_devices(devices: dict[str, str]) -> dict[str, bool]:
+    for webcam, device in devices.items():
+        device_dir = os.path.join(drivers_directory, device)
+        action = 'unbind' if os.path.isdir(device_dir) else 'bind'
+
+        with open(os.path.join(drivers_directory, action), 'w') as file:
+            file.write(device)
+
+
+def turn_off_devices(devices: dict[str, str]):
+    for webcam, device in devices.items():
+        device_dir = os.path.join(drivers_directory, device)
+        if os.path.isdir(device_dir):
+            with open(os.path.join(drivers_directory, 'unbind'), 'w') as file:
+                file.write(device)
+
+
+def turn_on_devices(devices: dict[str, str]):
+    for webcam, device in devices.items():
+        device_dir = os.path.join(drivers_directory, device)
+        if not os.path.isdir(device_dir):
+            with open(os.path.join(drivers_directory, 'bind'), 'w') as file:
+                file.write(device)
+
+
+def notify(title, message):
+    app = "webcam-control"
+    subprocess.run(["notify-send", title, message, "-a", app])
+
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description=help_messages['description'],
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+
+    parser.add_argument('action', choices=[
+                        'status', 'toggle', 'off', 'on', 'devices'],
+                        help=help_messages['action'])
+    parser.add_argument('-w', '--webcams', nargs='+',
+                        help=help_messages['webcams'])
+    parser.add_argument('-n', '--notify', action='store_true',
+                        help=help_messages['notify'])
+    parser.add_argument('-i', '--ignore-missing-devices',
+                        action='store_true',
+                        help=help_messages['ignore_missing_devices'])
+
+    args = parser.parse_args()
+
+    if args.action == 'devices':
+        list_devices()
+        sys.exit(0)
+
+    if not args.webcams:
+        print("Error: --webcams is required for actions other than 'devices'.")
+        parser.print_help()
+        sys.exit(1)
+
+    webcams = args.webcams
+    devices, products, missing_webcams = get_devices(webcams)
+
+    if not devices:
+        print("Error: None of the specified webcams were found.")
+        sys.exit(1)
+
+    if missing_webcams and not args.ignore_missing_devices:
+        print("Error: The following webcams were not found: ",
+              ', '.join(missing_webcams))
+        sys.exit(1)
+
+    if missing_webcams and args.ignore_missing_devices:
+        print("Warning: The following webcams not found and will be ignored: ",
+              ', '.join(missing_webcams))
+
+    if args.action == "status":
+        status = check_status(devices)
+        notification = ""
+        for webcam, state in status.items():
+            msg = "On" if state else "Off"
+            print(f"{webcam}: {msg}")
+            notification = notification + f"{webcam}: {msg}\n"
+
+        if args.notify:
+            notify("Status Of Webcams", notification)
+
+    elif args.action == "toggle":
+        toggle_devices(devices)
+        if args.notify:
+            notify("Toggled Webcams", "Toggled the state webcams.")
+
+    elif args.action == "off":
+        turn_off_devices(devices)
+        if args.notify:
+            notify("Turn Off Webcams", "Turned off the webcams.")
+
+    elif args.action == "on":
+        turn_on_devices(devices)
+        if args.notify:
+            notify("Turn On Webcams", "Turned On the webcams.")
+
+
+if __name__ == "__main__":
+    main()
